@@ -1,0 +1,73 @@
+#ifndef HUFF_H
+#define HUFF_H
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <ctype.h>
+
+#ifdef _WIN32
+    #include <windows.h>
+    #include <direct.h>
+    #define mkdir(p) _mkdir(p)
+    #define PATH_SEP '\\'
+#else
+    #include <sys/stat.h>
+    #include <sys/types.h>
+    #include <dirent.h>
+    #define mkdir(p) mkdir(p, 0755)
+    #define PATH_SEP '/'
+#endif
+
+#define MAX_CHAR  256        /* ASCII */
+#define PATH_LEN  512        /* 文件路径最大长度 */
+#define MAX_FILES 200        /* 最多同时压缩200个文件 */
+#define MAGIC_NUM "HUFF1"    /* 压缩包魔数 */
+#define MAGIC_LEN 5          /* 魔数长度 */
+
+/* 霍夫曼树节点 */
+typedef struct HuffNode {
+    unsigned char ch;
+    unsigned int freq;
+    struct HuffNode *left, *right;
+} HuffNode;
+
+/* 霍夫曼编码：code字符串如 "0101" */
+typedef struct HuffCode {
+    unsigned char ch;
+    char code[MAX_CHAR];
+} HuffCode;
+
+/* 压缩包中每个文件的头部信息 */
+typedef struct FileHeader {
+    char name[PATH_LEN];     /* 文件名 */
+    long file_size;          /* 原始大小 */
+    int is_dir;              /* 1=目录 0=文件 */
+} FileHeader;
+
+/* 全局编码表 */
+extern HuffCode code_table[MAX_CHAR];
+extern int code_count;
+
+/* ---- huff_core.c ---- */
+HuffNode* create_node(unsigned char ch, unsigned int freq);
+void      sort_nodes(HuffNode** nodes, int size);
+HuffNode* build_huffman_tree(unsigned int* freq);
+void      generate_codes(HuffNode* root, char* buf, int depth);
+int       compress_single_file(FILE* in, FILE* out, long* compressed_size);
+int       decompress_single_file(FILE* in, FILE* out, long original_size);
+void      free_huffman_tree(HuffNode* root);
+char*     get_code(unsigned char ch);
+
+/* ---- wildcard.c ---- */
+int  match_wildcard(const char* str, const char* pattern);
+int  scan_directory(const char* base_dir, const char* pattern,
+                    FileHeader* file_list, int* total_count);
+
+/* ---- file_pack.c ---- */
+int pack_multiple_files(const char* output_path, FileHeader* file_list,
+                        int file_count);
+int unpack_multiple_files(const char* input_path, const char* output_dir);
+
+#endif
