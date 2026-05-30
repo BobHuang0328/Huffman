@@ -1,9 +1,6 @@
 #include "huff.h"
-
 HuffCode code_table[MAX_CHAR];
 int code_count = 0;
-
-/* 创建霍夫曼树节点 */
 HuffNode* create_node(unsigned char ch, unsigned int freq) {
     HuffNode* node = (HuffNode*)malloc(sizeof(HuffNode));
     node->ch = ch;
@@ -11,8 +8,6 @@ HuffNode* create_node(unsigned char ch, unsigned int freq) {
     node->left = node->right = NULL;
     return node;
 }
-
-/* 对节点数组按频率升序排序（冒泡排序——大一水平最简单写法） */
 void sort_nodes(HuffNode** nodes, int size) {
     int i, j;
     for (i = 0; i < size - 1; i++) {
@@ -25,20 +20,13 @@ void sort_nodes(HuffNode** nodes, int size) {
         }
     }
 }
-
-/* 构建霍夫曼树 */
 HuffNode* build_huffman_tree(unsigned int* freq) {
     HuffNode** nodes;
     int size = 0, i, unique_count = 0;
-
-    /* 统计有几种字符 */
     for (i = 0; i < MAX_CHAR; i++) {
         if (freq[i] > 0) unique_count++;
     }
-
-    if (unique_count == 0) return NULL;  /* 空文件 */
-
-    /* 创建叶子节点数组 */
+    if (unique_count == 0) return NULL; 
     nodes = (HuffNode**)malloc(unique_count * sizeof(HuffNode*));
     int idx = 0;
     for (i = 0; i < MAX_CHAR; i++) {
@@ -47,62 +35,45 @@ HuffNode* build_huffman_tree(unsigned int* freq) {
         }
     }
     size = unique_count;
-
-    /* 只有一种字符：创建虚拟兄弟节点，避免无编码 */
     if (size == 1) {
         HuffNode* only = nodes[0];
         HuffNode* dummy = create_node(only->ch, 0);
-
         nodes = (HuffNode**)realloc(nodes, 2 * sizeof(HuffNode*));
         nodes[0] = only;
         nodes[1] = dummy;
         size = 2;
     }
-
-    /* 反复合并频率最小的两个节点，直到只剩一个根节点 */
     while (size > 1) {
         sort_nodes(nodes, size);
-
         HuffNode* left  = nodes[0];
         HuffNode* right = nodes[1];
         HuffNode* parent = create_node(0, left->freq + right->freq);
         parent->left  = left;
         parent->right = right;
-
-        /* 把 parent 放入 nodes[0]，把后面的元素依次前移 */
         nodes[0] = parent;
         for (i = 1; i < size - 1; i++) {
             nodes[i] = nodes[i + 1];
         }
         size--;
     }
-
     HuffNode* root = nodes[0];
     free(nodes);
     return root;
 }
-
-/* 递归生成霍夫曼编码：左=0，右=1 */
 void generate_codes(HuffNode* root, char* buf, int depth) {
     if (!root) return;
-
     if (!root->left && !root->right) {
-        /* 叶子节点：记录编码 */
         code_table[code_count].ch = root->ch;
         buf[depth] = '\0';
         strcpy(code_table[code_count].code, buf);
         code_count++;
         return;
     }
-
     buf[depth] = '0';
     generate_codes(root->left, buf, depth + 1);
-
     buf[depth] = '1';
     generate_codes(root->right, buf, depth + 1);
 }
-
-/* 查找字符对应的编码字符串 */
 char* get_code(unsigned char ch) {
     int i;
     for (i = 0; i < code_count; i++) {
@@ -110,41 +81,30 @@ char* get_code(unsigned char ch) {
             return code_table[i].code;
         }
     }
-    return "";  /* 未找到（不该发生） */
+    return ""; 
 }
-
-/* 压缩单个文件，返回0成功 */
 int compress_single_file(FILE* in, FILE* out, long* compressed_size) {
     unsigned int freq[MAX_CHAR] = {0};
     unsigned char ch;
     long total_chars = 0;
     long start_pos = ftell(out);
     int i;
-
-    /* 第一步：统计每个字符出现的次数 */
     rewind(in);
     while (fread(&ch, 1, 1, in) == 1) {
         freq[ch]++;
         total_chars++;
     }
-
-    /* 写入频率表（解压时重建树用）和原始大小 */
     fwrite(freq, sizeof(unsigned int), MAX_CHAR, out);
     fwrite(&total_chars, sizeof(long), 1, out);
-
     if (total_chars == 0) {
         *compressed_size = ftell(out) - start_pos;
         return 0;
     }
-
-    /* 第二步：构建霍夫曼树，生成编码表 */
     code_count = 0;
     HuffNode* root = build_huffman_tree(freq);
     char code_buf[MAX_CHAR] = {0};
     generate_codes(root, code_buf, 0);
     free_huffman_tree(root);
-
-    /* 第三步：逐字节编码写入 */
     rewind(in);
     unsigned char bit_buf = 0;
     int bit_count = 0;
@@ -162,8 +122,6 @@ int compress_single_file(FILE* in, FILE* out, long* compressed_size) {
             }
         }
     }
-
-    /* 写入不足8位的剩余比特（尾部填充0） */
     if (bit_count > 0) {
         bit_buf = (unsigned char)(bit_buf << (8 - bit_count));
         fwrite(&bit_buf, 1, 1, out);
@@ -172,29 +130,17 @@ int compress_single_file(FILE* in, FILE* out, long* compressed_size) {
     *compressed_size = ftell(out) - start_pos;
     return 0;
 }
-
-/* 解压单个文件，返回0成功 */
-/* 【修复】原来的循环会多读一个字节。现在改为：先检查count再读 */
 int decompress_single_file(FILE* in, FILE* out, long original_size) {
     unsigned int freq[MAX_CHAR] = {0};
     long total_chars;
     long count = 0;
-
-    /* 读取频率表和原始大小 */
     fread(freq, sizeof(unsigned int), MAX_CHAR, in);
     fread(&total_chars, sizeof(long), 1, in);
-
     if (total_chars == 0) return 0;
-
-    /* 重建霍夫曼树 */
     HuffNode* root = build_huffman_tree(freq);
     if (!root) return 0;
-
-    /* 逐位解码：从根开始，0走左，1走右，到叶子输出字符 */
     HuffNode* curr = root;
     unsigned char byte;
-
-    /* 【关键修复】先判断 count，再读字节，避免多读 */
     while (count < total_chars && fread(&byte, 1, 1, in) == 1) {
         int i;
         for (i = 7; i >= 0; i--) {
@@ -217,8 +163,6 @@ int decompress_single_file(FILE* in, FILE* out, long original_size) {
     free_huffman_tree(root);
     return 0;
 }
-
-/* 递归释放树内存 */
 void free_huffman_tree(HuffNode* root) {
     if (!root) return;
     free_huffman_tree(root->left);
