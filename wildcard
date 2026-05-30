@@ -1,59 +1,43 @@
 #include "huff.h"
-
-/* 通配符匹配：* 匹配任意字符，? 匹配单个字符
-   思路：逐字符比对。遇到 * 先让它匹配0个字符试试，失败就回退让它多吞一个 */
 int match_wildcard(const char* str, const char* pattern) {
     const char* s = str;
     const char* p = pattern;
-    const char* star = NULL;   /* 记录最近一个 * 的位置 */
-    const char* match = NULL;  /* 记录 * 当前匹配到了哪儿 */
-
+    const char* star = NULL; 
+    const char* match = NULL;  
     while (*s) {
         if (*p == '?' || *p == *s) {
-            s++; p++;                           /* 普通字符或?：直接匹配 */
+            s++; p++;         
         } else if (*p == '*') {
-            star = p++;                          /* 遇到*，先让它匹配0个 */
+            star = p++;                  
             match = s;
         } else if (star) {
-            /* 匹配失败，回退：让*多吞一个字符再试 */
             p = star + 1;
             s = ++match;
         } else {
-            return 0;                            /* 不匹配 */
+            return 0;                
         }
     }
 
-    while (*p == '*') p++;                       /* 跳过末尾的* */
+    while (*p == '*') p++;                 
     return (*p == '\0') ? 1 : 0;
 }
-
-/* 遍历目录，找出匹配通配符的文件，存入 file_list
-   返回0成功，1打开目录失败，2超过最大文件数 */
 #ifdef _WIN32
-/* Windows 版：使用 FindFirstFile / FindNextFile */
 int scan_directory(const char* base_dir, const char* pattern,
                    FileHeader* file_list, int* total_count) {
     char search_path[PATH_LEN];
     WIN32_FIND_DATAA fd;
     HANDLE hFind;
     char full_path[PATH_LEN];
-
     snprintf(search_path, PATH_LEN, "%s\\*", base_dir);
     hFind = FindFirstFileA(search_path, &fd);
     if (hFind == INVALID_HANDLE_VALUE) return 1;
-
     do {
-        /* 跳过 . 和 .. */
         if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0)
             continue;
-
         snprintf(full_path, PATH_LEN, "%s\\%s", base_dir, fd.cFileName);
-
-        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-            /* 递归进入子目录 */
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)      
             scan_directory(full_path, pattern, file_list, total_count);
         } else {
-            /* 检查是否匹配通配符 */
             if (match_wildcard(fd.cFileName, pattern)) {
                 if (*total_count >= MAX_FILES) {
                     FindClose(hFind);
@@ -72,23 +56,18 @@ int scan_directory(const char* base_dir, const char* pattern,
     return 0;
 }
 #else
-/* Linux/Mac 版：使用 opendir / readdir */
 int scan_directory(const char* base_dir, const char* pattern,
                    FileHeader* file_list, int* total_count) {
     DIR* dir = opendir(base_dir);
     struct dirent* entry;
     struct stat st;
     char full_path[PATH_LEN];
-
     if (!dir) return 1;
-
     while ((entry = readdir(dir)) != NULL) {
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
             continue;
-
         snprintf(full_path, PATH_LEN, "%s/%s", base_dir, entry->d_name);
         if (stat(full_path, &st) == -1) continue;
-
         if (S_ISDIR(st.st_mode)) {
             scan_directory(full_path, pattern, file_list, total_count);
         } else if (S_ISREG(st.st_mode)) {
@@ -104,7 +83,6 @@ int scan_directory(const char* base_dir, const char* pattern,
             }
         }
     }
-
     closedir(dir);
     return 0;
 }
