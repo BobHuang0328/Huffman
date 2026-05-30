@@ -1,9 +1,4 @@
 #include "huff.h"
-
-/* Pack file format:
-   [Magic 5 bytes] [File count int] [File headers] [File1 compressed data] [File2 compressed data]
-   Each file's compressed data starts with: freq table + original size (needed for decompression) */
-
 int pack_multiple_files(const char* output_path, FileHeader* file_list,
                         int file_count) {
     FILE* out = fopen(output_path, "wb");
@@ -12,30 +7,24 @@ int pack_multiple_files(const char* output_path, FileHeader* file_list,
         printf("Error: cannot create output file %s\n", output_path);
         return 1;
     }
-
     fwrite(MAGIC_NUM, 1, MAGIC_LEN, out);
     fwrite(&file_count, sizeof(int), 1, out);
     fwrite(file_list, sizeof(FileHeader), file_count, out);
-
     for (i = 0; i < file_count; i++) {
         if (file_list[i].is_dir) continue;
-
         FILE* in = fopen(file_list[i].name, "rb");
         if (!in) {
             printf("Warning: cannot open %s, skipping\n", file_list[i].name);
             continue;
         }
-
         long compressed_size;
         printf("  Compressing: %s\n", file_list[i].name);
         compress_single_file(in, out, &compressed_size);
         fclose(in);
     }
-
     fclose(out);
     return 0;
 }
-
 int unpack_multiple_files(const char* input_path, const char* output_dir) {
     FILE* in = fopen(input_path, "rb");
     int i;
@@ -43,7 +32,6 @@ int unpack_multiple_files(const char* input_path, const char* output_dir) {
         printf("Error: cannot open input file %s\n", input_path);
         return 1;
     }
-
     char magic[MAGIC_LEN + 1] = {0};
     fread(magic, 1, MAGIC_LEN, in);
     magic[MAGIC_LEN] = '\0';
@@ -52,40 +40,31 @@ int unpack_multiple_files(const char* input_path, const char* output_dir) {
         fclose(in);
         return 1;
     }
-
     int file_count;
     fread(&file_count, sizeof(int), 1, in);
-
     FileHeader* file_list =
         (FileHeader*)malloc((size_t)file_count * sizeof(FileHeader));
     fread(file_list, sizeof(FileHeader), file_count, in);
-
     mkdir(output_dir);
-
     for (i = 0; i < file_count; i++) {
         if (file_list[i].is_dir) continue;
-
         char* filename = strrchr(file_list[i].name, '\\');
         if (!filename) filename = strrchr(file_list[i].name, '/');
         if (!filename)
             filename = file_list[i].name;
         else
             filename++;
-
         char out_path[PATH_LEN];
         snprintf(out_path, PATH_LEN, "%s%c%s", output_dir, PATH_SEP, filename);
-
         FILE* out = fopen(out_path, "wb");
         if (!out) {
             printf("Warning: cannot create %s\n", out_path);
             continue;
         }
-
         printf("  Decompressing: %s\n", filename);
         decompress_single_file(in, out, file_list[i].file_size);
         fclose(out);
     }
-
     free(file_list);
     fclose(in);
     return 0;
